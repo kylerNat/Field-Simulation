@@ -412,7 +412,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         float camera[16] = {};
         for(int i = 0; i < 16; i+=5)
         {
-            camera[i] = 1.0;
+            camera[i] = (i!=15)+1.0;
         }
 
         glBindTexture(GL_TEXTURE_2D, data_texture[0]);
