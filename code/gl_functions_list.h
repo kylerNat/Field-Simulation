@@ -42,7 +42,6 @@ gl_load_operation(void, glUniformMatrix4fv, (GLint location, GLsizei count, GLbo
 
 gl_load_operation(void, wglChoosePixelFormatARB, (HDC hdc, const int *piAttribIList, const FLOAT *pfAttribFList, UINT nMaxFormats, int *piFormats, UINT *nNumFormats));
 
-//TODO: fill in the arguments and outputs for these
 gl_load_operation(void, glGenRenderbuffers, (GLsizei n, GLuint *renderbuffers));
 gl_load_operation(void, glBindRenderbuffer, (GLenum target, GLuint renderbuffer));
 gl_load_operation(void, glRenderbufferStorage, ());
@@ -62,7 +61,6 @@ gl_start_check
 gl_load_operation(BOOL, wglSwapIntervalEXT, (int interval));
 gl_load_operation(int, wglGetSwapIntervalEXT, (void));
 gl_end_check
-//END TODO
 
 gl_load_operation(HGLRC, wglCreateContextAttribsARB, (HDC hDC, HGLRC hShareContext, const int *attribList));
 
@@ -70,3 +68,4 @@ gl_load_operation(HGLRC, wglCreateContextAttribsARB, (HDC hDC, HGLRC hShareConte
 #undef gl_check
 #undef gl_start_check
 #undef gl_end_check
+#undef declaring

@@ -29,6 +29,18 @@ printer& operator,(printer p, int a)
     return __printer__;
 }
 
+printer& operator,(printer p, uint a)
+{
+    __printer__.count += printf("%u", a);
+    return __printer__;
+}
+
+printer& operator,(printer p, size_t a)
+{
+    __printer__.count += printf("%zu", a);
+    return __printer__;
+}
+
 printer& operator,(printer p, float a)
 {
     __printer__.count += printf("%f", a);
@@ -49,10 +61,10 @@ printer& operator,(printer p, DWORD a)
 
 #define log_warning(...) (__printer__, "warning: ", __VA_ARGS__, "\n");
 
-#define log_error(...) {(__printer__, "error: ", __VA_ARGS__, "\n"); exit(EXIT_FAILURE);}
+#define log_error(...) {(__printer__, __FILE__, "(", __LINE__, "): error: ", __VA_ARGS__, "\n"); exit(EXIT_FAILURE);}
 
 #define log_output(...) (__printer__, __VA_ARGS__);
 
-#define assert(this_is_true, ...) if(!(this_is_true)) {(__printer__, __VA_ARGS__); crash;}/* exit(EXIT_FAILURE);} */
+#define assert(this_is_true, ...) if(!(this_is_true)) {log_error(__VA_ARGS__);}/* exit(EXIT_FAILURE);} */
 
 #endif //LOGGING

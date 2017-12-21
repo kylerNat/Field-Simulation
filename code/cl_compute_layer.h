@@ -1,4 +1,5 @@
 #include <CL/cl.h>
+#include "cl_extension_loading.h"
 #include "maths.h"
 
 #include <time.h>
@@ -16,51 +17,89 @@ real* data;
 
 local cl_kernel kernel;
 local uint data_size;
-local cl_mem psi_r[2];
-local cl_mem psi_i[2];
+local cl_mem psi[2];
 local cl_command_queue queue;
-void initialize_compute()
+void init_compute(GLenum texture_target, GLuint* texture, HGLRC glrc, HDC dc)
 {
+    cl_load_functions();
+
+    int error;
     log_output("initialize_compute running...\n");
+
+    //TODO: make sure extensions are supported by device
     //find device
-    cl_platform_id platforms[1]; //TODO: actually look through platform list
+    cl_platform_id platforms[10]; //TODO: actually look through platform list
     uint n_platforms = 0;
 
     cl_int platform_ids = clGetPlatformIDs(len(platforms),
                                            platforms,
                                            &n_platforms);
 
+    log_output("found ", n_platforms, " platforms\n");
+    for(int i = 0; i < n_platforms; i++)
+    {
+        size_t platform_name_size;
+        clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, 0, 0, &platform_name_size);
+        char* platform_name = (char*) free_memory;
+        clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, platform_name_size, platform_name, 0);
+        log_output("    platform ", i, ": \n        name: ", platform_name, "\n");
+    }
+
     cl_platform_id platform = platforms[0];
 
-    cl_device_id device_list[12];
-    uint n_device_list = 0;
-
-    cl_int device_ids = clGetDeviceIDs(platform,
-                                       len(device_list),
-                                       CL_DEVICE_TYPE_ALL,
-                                       device_list,
-                                       &n_device_list);
-
-    cl_device_id devices[] = {device_list[0]}; //Devices to actually use
-    uint n_devices = len(devices);
-
-    //create context
     cl_context_properties context_properties[] = {
         CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
+        CL_GL_CONTEXT_KHR, (cl_context_properties) glrc,
+        CL_WGL_HDC_KHR, (cl_context_properties) dc,
         0,
     };
 
-    int error;
+    //TODO: actually look through device list
+    size_t devices_size = 0;
+    error = clGetGLContextInfoKHR(context_properties,
+                                  CL_CURRENT_DEVICE_FOR_GL_CONTEXT_KHR,
+                                  0,
+                                  0,
+                                  &devices_size);
+    assert(error==CL_SUCCESS, error, ", Could not get cl device for current gl context");
+
+    cl_device_id* devices = (cl_device_id*) stalloc(devices_size);
+    clGetGLContextInfoKHR(context_properties,
+                          CL_CURRENT_DEVICE_FOR_GL_CONTEXT_KHR,
+                          devices_size,
+                          devices,
+                          0);
+
+    size_t n_devices = devices_size/sizeof(cl_device_id);
+
+    log_output("found ", n_devices, " devices for current gl context\n");
+    log_output("devices:\n");
+    for(int i = 0; i < n_devices; i++)
+    {
+        cl_device_type device_type;
+        clGetDeviceInfo(devices[i], CL_DEVICE_TYPE, sizeof(cl_device_type), &device_type, 0);
+        size_t extensions_size;
+        clGetDeviceInfo(devices[i], CL_DEVICE_EXTENSIONS, 0, 0, &extensions_size);
+        char* extensions = (char*) free_memory;
+        clGetDeviceInfo(devices[i], CL_DEVICE_EXTENSIONS, extensions_size, extensions, 0);
+        log_output("    device ", (int)i, ":\n        type: ", (int)device_type, "\n        extensions: ", extensions, "\n");
+    }
+
+    //create context
     cl_context context = clCreateContext(context_properties,
-                                         1,//n_devices,
+                                         1, //n_devices,
                                          &devices[0],
                                          0, //notify callback
                                          0, //used data for notify callback
                                          &error);
-    if(error < 0) log_error("Could not create context");
+    assert(error==0, "Could not create context");
 
-    void* free_mem = malloc(1024*1024);//TODO: fix memory stuff
-    char* code = (char*) free_mem;
+    //create device queue
+    queue = clCreateCommandQueue(context, devices[0], 0, &error);
+    if(error < 0) log_error("Could not create queue");
+
+    //compile kernel
+    char* code = (char*) free_memory;
     size_t code_size = load_file("../code/spring_bed_kernel.cl", code);
 
     //TODO: actually check for errors
@@ -86,73 +125,21 @@ void initialize_compute()
     kernel = clCreateKernel(program, "simulate", &error);
     if(error < 0) log_error("Could not create kernel");
 
-    #define pi (3.14159265358979323846264338327950)
+    psi[0] = clCreateFromGLTexture(context,
+                                 CL_MEM_READ_WRITE,
+                                 texture_target,
+                                 0,
+                                 texture[0],
+                                 &error);
+    assert(error==CL_SUCCESS, error, ", Could not create buffer for psi[0]");
 
-    #define dim (w*h)
-    data_size = sizeof(real)*dim;
-    data = (real*) calloc(4*dim, sizeof(real));
-    srand(time(0));
-    /* for(real theta = 0; theta < 2*pi; theta += pi/1000.0) */
-    /* { */
-    /*     real r = 50+10*(rand()%1000-500)/1000.0; */
-    /*     int dx = r*cos(theta); */
-    /*     int dy = r*sin(theta); */
-
-    /*     int x = dx + w/2; */
-    /*     int y = dy + h/2; */
-
-    /*     if(x >= 0 && x < w && y >= 0 && y < h) data[x+y*w] = 10.0; */
-    /* } */
-    for(int x = 0; x < w; x++)
-        for(int y = 0; y < h; y++)
-        {
-            int dx = x-w/2;
-            int dy = y-h/2;
-
-            data[x+y*w] = sin((2*pi*x)/w)*cos((pi*(2*y+x))/h);
-            /* data[x+y*w] = (100.0*dx*dy)/(w*h); */
-            /* data[x+y*w] = 10*(sq((float)(dx*dx+dy*dy)-0.1*(w*h)) < 100000 &&x!=0&&x!=w-1); */
-            /* data[x+y*w] = (x!=0&&x!=w-1)*0.1*(rand()%1000-500); */
-            /* data[x+y*w] = sin((2*pi*x)/w)*cos((2*pi*y)/h); */
-
-            /* data[(w/2+dx)+(w/2+dy)*w] = 10.5*exp(-0.1*(sq(dx)+sq(dy))); */
-
-            /* data[(x)+(y)*w]       = 0.5*exp(-0.01*(sq(dx)+sq(dy)))*cos(1.0*dy); */
-            /* (data+dim)[(x)+(y)*w] = 0.5*exp(-0.01*(sq(dx)+sq(dy)))*sin(1.0*dy); */
-
-            if(x==0||x==w-1) data[x+y*w] = 0;
-        }
-
-    psi_r[0] = clCreateBuffer(context,
-                              CL_MEM_COPY_HOST_PTR,
-                              data_size,
-                              data,
-                              &error);
-    if(error < 0) log_error("Could not create buffer for psi_r[0]");
-
-    psi_r[1] = clCreateBuffer(context,
-                              CL_MEM_COPY_HOST_PTR,
-                              data_size,
-                              data+2*dim,
-                              &error);
-    if(error < 0) log_error("Could not create buffer for psi_r[1]");
-
-    psi_i[0] = clCreateBuffer(context,
-                              CL_MEM_COPY_HOST_PTR,
-                              data_size,
-                              data+1*dim,
-                              &error);
-    if(error < 0) log_error("Could not create buffer for psi_i[0]");
-
-    psi_i[1] = clCreateBuffer(context,
-                            CL_MEM_COPY_HOST_PTR,
-                            data_size,
-                            data+3*dim,
-                            &error);
-    if(error < 0) log_error("Could not create buffer for psi_i[1]");
-
-    queue = clCreateCommandQueue(context, devices[0], 0, &error);
-    if(error < 0) log_error("Could not create queue");
+    psi[1] = clCreateFromGLTexture(context,
+                                 CL_MEM_READ_WRITE,
+                                 texture_target,
+                                 0,
+                                 texture[1],
+                                 &error);
+    assert(error==CL_SUCCESS, error, ", Could not create buffer for psi[1]");
 }
 
 void simulate()
@@ -161,23 +148,29 @@ void simulate()
     real dt = 0.001;
     int error;
 
+    glFinish();
+
+    error = clEnqueueAcquireGLObjects(queue, 2,  psi, 0, 0, 0);
+    assert(error==CL_SUCCESS, error, ", Could not aquire gl objects");
+
+    #define clSetKernelArgAndAssert(kernel, arg, size, value)           \
+        error = clSetKernelArg(kernel, arg, size, value);               \
+        assert(error==CL_SUCCESS, error, ", Could not set kernal arg " STR(arg) " to " STR(value));
+
     for(int j = 0; j < 20; j++)
     {
-        error  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &psi_r[i&1]);
-        error |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &psi_i[i&1]);
-        error |= clSetKernelArg(kernel, 2, sizeof(cl_mem), &psi_r[!(i&1)]);
-        error |= clSetKernelArg(kernel, 3, sizeof(cl_mem), &psi_i[!(i&1)]);
-        error |= clSetKernelArg(kernel, 4, sizeof(real), &dt);
-        if(error < 0) log_error("Could not set kernal args");
         size_t global_size[] = {w, h};
         size_t local_size[] = {0, 0};
+
+        clSetKernelArgAndAssert(kernel, 0, sizeof(real), &dt);
+        clSetKernelArgAndAssert(kernel, 1, sizeof(cl_mem), &psi[j%2]);
+        clSetKernelArgAndAssert(kernel, 2, sizeof(cl_mem), &psi[1-j%2]);
+
         error = clEnqueueNDRangeKernel(queue, kernel, 2, 0, global_size, 0, 0, 0, 0);
         if(error < 0) log_error("Could not enqueue the kernel");
         i++;
     }
 
-    error = clEnqueueReadBuffer(queue, psi_r[0], CL_TRUE, 0, data_size, data, 0, 0, 0);
-    if(error < 0) log_error("Could not read buffer");
-    error = clEnqueueReadBuffer(queue, psi_i[0], CL_TRUE, 0, data_size, data+dim, 0, 0, 0);
-    if(error < 0) log_error("Could not read buffer");
+    clFinish(queue);
+    clEnqueueReleaseGLObjects(queue, 2, psi, 0, 0, 0);
 }

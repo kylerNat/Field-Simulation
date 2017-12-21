@@ -8,7 +8,7 @@
 #include "misc.h"
 #include "logging.h"
 #include "memory.h"
-//#include "maths.h"
+#include "maths.h"
 #include "gl_extension_loading.h"
 #include "gl_graphics.h"
 
@@ -118,8 +118,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                    LPSTR lpCmdLine, int nCmdShow)
 {
-    // initialize_compute();
-
     WNDCLASSEX wc;
     {//init the window class
         wc.cbSize = sizeof(WNDCLASSEX);
@@ -206,6 +204,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         wglDeleteContext(glrc);
     }
 
+    HGLRC glrc;
     HDC dc;
     {
         dc = GetDC(hwnd);
@@ -237,7 +236,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             0
         };
 
-        HGLRC glrc = wglCreateContextAttribsARB(dc, 0, attribs);
+        glrc = wglCreateContextAttribsARB(dc, 0, attribs);
 
         wglMakeCurrent(dc, glrc);
     }
@@ -252,6 +251,51 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     free_memory = start_memory;
     assert(free_memory);
 
+    GLuint data_texture[2];
+    { //initialize compute stuff
+        #define dim (w*h)
+        size_t data_size = sizeof(real)*dim;
+        data = (real*) calloc(4*dim, sizeof(real)); //TODO: fix memory management
+        srand(time(0));
+        for(int x = 0; x < w; x++)
+            for(int y = 0; y < h; y++)
+            {
+                int dx = x-w/2;
+                int dy = y-h/2;
+
+                // data[x+y*w] = sin((2*pi*x)/w)*cos((pi*(2*y+x))/h);
+                /* data[x+y*w] = (100.0*dx*dy)/(w*h); */
+                data[(x+y*w)*2] = 10*(sq((real)(dx*dx+dy*dy)-0.1*(w*h)) < 100000 &&x!=0&&x!=w-1);
+                /* data[x+y*w] = (x!=0&&x!=w-1)*0.1*(rand()%1000-500); */
+                /* data[x+y*w] = sin((2*pi*x)/w)*cos((2*pi*y)/h); */
+
+                /* data[(w/2+dx)+(w/2+dy)*w] = 10.5*exp(-0.1*(sq(dx)+sq(dy))); */
+
+                /* data[(x)+(y)*w]       = 0.5*exp(-0.01*(sq(dx)+sq(dy)))*cos(1.0*dy); */
+                /* (data+dim)[(x)+(y)*w] = 0.5*exp(-0.01*(sq(dx)+sq(dy)))*sin(1.0*dy); */
+            }
+
+        for(int i = 0; i < 2; i++)
+        {
+            glGenTextures(1, &data_texture[i]);
+            glBindTexture(GL_TEXTURE_2D, data_texture[i]);
+
+            //texture parameters
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+            //allocate and upload
+            // uint n_layers = 1;
+            // glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, width, height, n_layers);
+            // glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, w, h, n_layers, GL_RGBA, GL_FLOAT, data);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RG32F, w, h, 0, GL_RG, GL_FLOAT, data+i*(w*h*2));
+        }
+
+        init_compute(GL_TEXTURE_2D, data_texture, glrc, dc);
+    }
+
     vi_buffer * vi_buffers;
     size_t n_vi_buffers;
     {
@@ -262,6 +306,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     GLuint program;
     GLuint transform_uniform;
+    GLuint data_uniform;
     {
         char* vertex_shader_source = (char*) free_memory;
         size_t vertex_shader_source_size = load_file("../code/vertex_shader.glsl", vertex_shader_source);
@@ -273,11 +318,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         fragment_shader_source[fragment_shader_source_size] = 0;
         free_memory = (void*)((char*)free_memory+fragment_shader_source_size+1);
 
-        log_output("vertex shader:\n", vertex_shader_source, "\nfragmend shader:\n", fragment_shader_source);
+        // log_output("vertex shader:\n", vertex_shader_source, "\nfragment shader:\n", fragment_shader_source);
 
         program = init_program(vertex_shader_source, fragment_shader_source);
 
         transform_uniform = glGetUniformLocation(program, "t");
+        data_uniform = glGetUniformLocation(program, "data");
     }
 
     GLuint fbo;
@@ -354,55 +400,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             }
         }
 
-        // simulate();
+        simulate();
 
-        #if 0
-        int* bitmap = (int*) malloc(sizeof(int)*w*h);
-        for(int i = 0; i < h*w; i++)
-        {
-            // float scale = 100.0;
-            float psir = data[i];
-            float psii = (data+dim)[i];
-            #if 1
-            float r = clamp(psir,0,1);//clamp(scale*psir+0.5, 0.0, 1.0);
-            float b = clamp(-psir,0,1);//clamp(scale*psii+0.5, 0.0, 1.0);
-            float x = i%w;
-            float y = i/w;
-            float g = 0.0;//clamp(3*(sq(x-w/2)+sq(y-h/2))/(w*h), 0.0, 1.0);
-            // r = pow(r, 1.0/2.2);
-            // b = pow(b, 1.0/2.2);
-            // g = pow(g, 1.0/2.2);
-            #else
-            float P = sq(psir)+sq(psii);
-            float r = clamp(scale*P, 0.0, 1.0);
-            float b = clamp(scale*P, 0.0, 1.0);
-            float g = 0.0;
-            #endif
-            bitmap[i] = ((0xFF&(int)(0xFF*b))
-                         |(0xFF&(int)(0xFF*g))<<(8)
-                         |(0xFF&(int)(0xFF*r))<<(8*2));
-        }
-
-        BITMAPINFO bmi;
-        bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
-        bmi.bmiHeader.biWidth = w;
-        bmi.bmiHeader.biHeight = -h;
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = BI_RGB;
-
-        RECT window_rect;
-        GetClientRect(hwnd, &window_rect);
-
-        StretchDIBits(dc,
-                      (window_rect.right-window_rect.left-w)/2, (window_rect.bottom-window_rect.top-h)/2,
-                      w, h,
-                      0, 0, w, h,
-                      bitmap,
-                      &bmi,
-                      DIB_RGB_COLORS,
-                      SRCCOPY);
-        #endif
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
         glViewport(0, 0, window_width, window_height);
@@ -416,6 +415,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             camera[i] = 1.0;
         }
 
+        glBindTexture(GL_TEXTURE_2D, data_texture[0]);
+        glUniform1i(data_uniform, 0);
         glUniformMatrix4fv(transform_uniform, 1, false, (float *) &camera);
         bind_vertex_and_index_buffers(vi_buffers[vi_id_cube].vb, vi_buffers[vi_id_cube].ib);
         glDrawElements(GL_TRIANGLES, vi_buffers[vi_id_cube].n, GL_UNSIGNED_SHORT, 0);

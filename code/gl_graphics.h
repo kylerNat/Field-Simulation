@@ -131,7 +131,7 @@ GLuint init_shader(char * shader_source, GLenum shader_type)
     {
         char info_log[128];
         glGetShaderInfoLog(shader, sizeof(info_log), 0, info_log);
-        assert(0);
+        assert(0, info_log);
     }
     #endif
 
