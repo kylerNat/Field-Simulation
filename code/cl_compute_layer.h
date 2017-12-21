@@ -109,9 +109,9 @@ void initialize_compute()
             int dx = x-w/2;
             int dy = y-h/2;
 
-            data[x+y*w] = sin((2*pi*x)/w)*cos((pi*(2*y+x))/h);
+            /* data[x+y*w] = sin((2*pi*x)/w)*cos((pi*(2*y+x))/h); */
             /* data[x+y*w] = (100.0*dx*dy)/(w*h); */
-            /* data[x+y*w] = 10*(sq((float)(dx*dx+dy*dy)-0.1*(w*h)) < 100000 &&x!=0&&x!=w-1); */
+            data[x+y*w] = 10*(sq((float)(dx*dx+dy*dy)-0.1*(w*h)) < 100000 &&x!=0&&x!=w-1);
             /* data[x+y*w] = (x!=0&&x!=w-1)*0.1*(rand()%1000-500); */
             /* data[x+y*w] = sin((2*pi*x)/w)*cos((2*pi*y)/h); */
 

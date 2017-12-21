@@ -118,7 +118,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                    LPSTR lpCmdLine, int nCmdShow)
 {
-    // initialize_compute();
+    initialize_compute();
 
     WNDCLASSEX wc;
     {//init the window class
@@ -354,9 +354,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             }
         }
 
-        // simulate();
+        simulate();
 
-        #if 0
+        #if 1
         int* bitmap = (int*) malloc(sizeof(int)*w*h);
         for(int i = 0; i < h*w; i++)
         {
@@ -403,57 +403,57 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                       DIB_RGB_COLORS,
                       SRCCOPY);
         #endif
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        // glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
-        glViewport(0, 0, window_width, window_height);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        // glViewport(0, 0, window_width, window_height);
+        // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glUseProgram(program);
+        // glUseProgram(program);
 
-        float camera[16] = {};
-        for(int i = 0; i < 16; i+=5)
-        {
-            camera[i] = 1.0;
-        }
+        // float camera[16] = {};
+        // for(int i = 0; i < 16; i+=5)
+        // {
+        //     camera[i] = 1.0;
+        // }
 
-        glUniformMatrix4fv(transform_uniform, 1, false, (float *) &camera);
-        bind_vertex_and_index_buffers(vi_buffers[vi_id_cube].vb, vi_buffers[vi_id_cube].ib);
-        glDrawElements(GL_TRIANGLES, vi_buffers[vi_id_cube].n, GL_UNSIGNED_SHORT, 0);
+        // glUniformMatrix4fv(transform_uniform, 1, false, (float *) &camera);
+        // bind_vertex_and_index_buffers(vi_buffers[vi_id_cube].vb, vi_buffers[vi_id_cube].ib);
+        // glDrawElements(GL_TRIANGLES, vi_buffers[vi_id_cube].n, GL_UNSIGNED_SHORT, 0);
 
-        //render fbo
-        #if 1
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
-        glDrawBuffer(GL_BACK);                       // Set the back buffer as the draw buffer
+        // //render fbo
+        // #if 1
+        // glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        // glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        // glDrawBuffer(GL_BACK);                       // Set the back buffer as the draw buffer
 
-        glBlitFramebuffer(0, 0, window_width, window_height,
-                          0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-        #else
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, window_width, window_height);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        // glBlitFramebuffer(0, 0, window_width, window_height,
+        //                   0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        // #else
+        // glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        // glViewport(0, 0, window_width, window_height);
+        // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glUseProgram(post_program);
+        // glUseProgram(post_program);
 
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, colorbuffer);
-        glUniform1i(post_tex_uniform, 0);
+        // glActiveTexture(GL_TEXTURE0);
+        // glBindTexture(GL_TEXTURE_2D, colorbuffer);
+        // glUniform1i(post_tex_uniform, 0);
 
-        glUniform1i(width_uniform, window_width);
-        glUniform1i(height_uniform, window_height);
+        // glUniform1i(width_uniform, window_width);
+        // glUniform1i(height_uniform, window_height);
 
-        glBegin(GL_TRIANGLE_FAN);
+        // glBegin(GL_TRIANGLE_FAN);
 
-        glVertex2f( 1.0,  1.0);
-        glVertex2f(-1.0,  1.0);
-        glVertex2f(-1.0, -1.0);
-        glVertex2f( 1.0, -1.0);
+        // glVertex2f( 1.0,  1.0);
+        // glVertex2f(-1.0,  1.0);
+        // glVertex2f(-1.0, -1.0);
+        // glVertex2f( 1.0, -1.0);
 
-        glEnd();
-        #endif
-        SwapBuffers(dc);
+        // glEnd();
+        // #endif
+        // SwapBuffers(dc);
     }
     while(msg.message != WM_QUIT);
 
