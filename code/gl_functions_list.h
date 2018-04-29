@@ -40,6 +40,11 @@ gl_load_operation(void, glUniform2f, (GLuint location, GLfloat v0, GLfloat v1));
 gl_load_operation(void, glUniform3f, (GLuint location, GLfloat v0, GLfloat v1, GLfloat v2));
 gl_load_operation(void, glUniformMatrix4fv, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value));
 
+gl_load_operation(void, glVertexAttrib2f, (GLuint index, GLfloat v0, GLfloat v1));
+gl_load_operation(void, glVertexAttrib3f, (GLuint index, GLfloat v0, GLfloat v1, GLfloat v2));
+
+gl_load_operation(void, glPatchParameteri, (GLenum pname, GLint value));
+
 gl_load_operation(void, wglChoosePixelFormatARB, (HDC hdc, const int *piAttribIList, const FLOAT *pfAttribFList, UINT nMaxFormats, int *piFormats, UINT *nNumFormats));
 
 gl_load_operation(void, glGenRenderbuffers, (GLsizei n, GLuint *renderbuffers));
@@ -53,6 +58,9 @@ gl_load_operation(void, glFramebufferRenderbuffer, (GLenum target, GLenum attach
 gl_load_operation(GLenum, glCheckFramebufferStatus, (GLenum target));
 gl_load_operation(void, glTexImage2DMultisample, (GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height, GLboolean fixedsamplelocations));
 gl_load_operation(void, glRenderbufferStorageMultisample, (GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height));
+
+gl_load_operation(void, glTextureSubImage2D, (GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *pixels));
+gl_load_operation(void, glGetTextureSubImage, (GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, GLsizei bufSize, void *pixels));
 
 gl_load_operation(void, glBlitFramebuffer, (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter));
 

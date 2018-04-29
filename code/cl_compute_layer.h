@@ -7,19 +7,14 @@
 int w = 500;
 int h = 500;
 
-real* data;
+#define n_textures 2
 
-/* real error_function() */
-/* { */
-/*     return hbar^2/(2.0*m)*laplacian(psi) + (V-E)*psi; */
-/* } */
+//TODO: abstractify
 
-
-local cl_kernel kernel;
-local uint data_size;
-local cl_mem psi[2];
-local cl_command_queue queue;
-void init_compute(GLenum texture_target, GLuint* texture, HGLRC glrc, HDC dc)
+cl_command_queue queue;
+cl_context context;
+cl_device_id* devices;
+void init_compute(HGLRC glrc, HDC dc)
 {
     cl_load_functions();
 
@@ -63,7 +58,7 @@ void init_compute(GLenum texture_target, GLuint* texture, HGLRC glrc, HDC dc)
                                   &devices_size);
     assert(error==CL_SUCCESS, error, ", Could not get cl device for current gl context");
 
-    cl_device_id* devices = (cl_device_id*) stalloc(devices_size);
+    devices = (cl_device_id*) stalloc(devices_size);
     clGetGLContextInfoKHR(context_properties,
                           CL_CURRENT_DEVICE_FOR_GL_CONTEXT_KHR,
                           devices_size,
@@ -86,7 +81,7 @@ void init_compute(GLenum texture_target, GLuint* texture, HGLRC glrc, HDC dc)
     }
 
     //create context
-    cl_context context = clCreateContext(context_properties,
+    context = clCreateContext(context_properties,
                                          1, //n_devices,
                                          &devices[0],
                                          0, //notify callback
@@ -97,10 +92,11 @@ void init_compute(GLenum texture_target, GLuint* texture, HGLRC glrc, HDC dc)
     //create device queue
     queue = clCreateCommandQueue(context, devices[0], 0, &error);
     if(error < 0) log_error("Could not create queue");
+}
 
-    //compile kernel
-    char* code = (char*) free_memory;
-    size_t code_size = load_file("../code/spring_bed_kernel.cl", code);
+cl_kernel compile_kernel(char* code, size_t code_size)
+{
+    int error;
 
     //TODO: actually check for errors
     cl_program program = clCreateProgramWithSource(context,
@@ -122,55 +118,25 @@ void init_compute(GLenum texture_target, GLuint* texture, HGLRC glrc, HDC dc)
         log_error("\n", program_log, "\n");
     }
 
-    kernel = clCreateKernel(program, "simulate", &error);
+    cl_kernel kernel = clCreateKernel(program, "simulate", &error);
     if(error < 0) log_error("Could not create kernel");
 
-    psi[0] = clCreateFromGLTexture(context,
-                                 CL_MEM_READ_WRITE,
-                                 texture_target,
-                                 0,
-                                 texture[0],
-                                 &error);
-    assert(error==CL_SUCCESS, error, ", Could not create buffer for psi[0]");
-
-    psi[1] = clCreateFromGLTexture(context,
-                                 CL_MEM_READ_WRITE,
-                                 texture_target,
-                                 0,
-                                 texture[1],
-                                 &error);
-    assert(error==CL_SUCCESS, error, ", Could not create buffer for psi[1]");
+    return kernel;
 }
 
-void simulate()
+cl_mem psi[n_textures];
+void cl_buffers_from_gl_textures(GLenum texture_target, GLuint* texture)
 {
-    static int i = 0;
-    real dt = 0.001;
     int error;
 
-    glFinish();
-
-    error = clEnqueueAcquireGLObjects(queue, 2,  psi, 0, 0, 0);
-    assert(error==CL_SUCCESS, error, ", Could not aquire gl objects");
-
-    #define clSetKernelArgAndAssert(kernel, arg, size, value)           \
-        error = clSetKernelArg(kernel, arg, size, value);               \
-        assert(error==CL_SUCCESS, error, ", Could not set kernal arg " STR(arg) " to " STR(value));
-
-    for(int j = 0; j < 20; j++)
+    for(int i = 0; i < n_textures; i++)
     {
-        size_t global_size[] = {w, h};
-        size_t local_size[] = {0, 0};
-
-        clSetKernelArgAndAssert(kernel, 0, sizeof(real), &dt);
-        clSetKernelArgAndAssert(kernel, 1, sizeof(cl_mem), &psi[j%2]);
-        clSetKernelArgAndAssert(kernel, 2, sizeof(cl_mem), &psi[1-j%2]);
-
-        error = clEnqueueNDRangeKernel(queue, kernel, 2, 0, global_size, 0, 0, 0, 0);
-        if(error < 0) log_error("Could not enqueue the kernel");
-        i++;
+        psi[i] = clCreateFromGLTexture(context,
+                                     CL_MEM_READ_WRITE,
+                                     texture_target,
+                                     0,
+                                     texture[i],
+                                     &error);
+        assert(error==CL_SUCCESS, error, ", Could not create buffer for psi[", i ,"]");
     }
-
-    clFinish(queue);
-    clEnqueueReleaseGLObjects(queue, 2, psi, 0, 0, 0);
 }

@@ -10,7 +10,6 @@
 #include "memory.h"
 #include "maths.h"
 #include "gl_extension_loading.h"
-#include "gl_graphics.h"
 
 __inline uint get_cd(char* output)
 {
@@ -61,6 +60,16 @@ __inline int load_file(char* filename, char* output)
     return bytes_read;
 }
 
+char* load_file_0_terminated(char* filename)
+{
+    char* output = (char*) free_memory;
+    size_t output_size = load_file(filename, output);
+    output[output_size] = 0;
+    free_memory = (void*)((char*)free_memory+output_size+1);
+    return output;
+}
+
+#include "gl_graphics.h"
 #include "cl_compute_layer.h"
 
 uint window_width = w;
@@ -206,7 +215,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     HGLRC glrc;
     HDC dc;
-    {
+    {//init dc & gl context
         dc = GetDC(hwnd);
 
         const int attribList[] = {
@@ -251,31 +260,37 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     free_memory = start_memory;
     assert(free_memory);
 
-    GLuint data_texture[2];
-    { //initialize compute stuff
+    real* data;
+    GLuint data_texture[n_textures];
+    cl_kernel kernel;
+    {//initialize compute stuff
+        #define stride 4/n_textures
         #define dim (w*h)
         size_t data_size = sizeof(real)*dim;
         data = (real*) calloc(4*dim, sizeof(real)); //TODO: fix memory management
         srand(time(0));
+
+        //set up initial conditions
         for(int x = 0; x < w; x++)
             for(int y = 0; y < h; y++)
             {
                 int dx = x-w/2;
                 int dy = y-h/2;
 
-                // data[x+y*w] = sin((2*pi*x)/w)*cos((pi*(2*y+x))/h);
-                /* data[x+y*w] = (100.0*dx*dy)/(w*h); */
-                data[(x+y*w)*2] = 10*(sq((real)(dx*dx+dy*dy)-0.1*(w*h)) < 100000 &&x!=0&&x!=w-1);
-                /* data[x+y*w] = (x!=0&&x!=w-1)*0.1*(rand()%1000-500); */
-                /* data[x+y*w] = sin((2*pi*x)/w)*cos((2*pi*y)/h); */
+                // data[(x+y*w)*stride] = 10*exp(-0.001*(sq(dx)+sq(dy)));
+                // data[(x+y*w)*stride] = sin((2*pi*x)/w)*cos((pi*(2*y+x))/h);
+                // data[(x+y*w)*stride] = (1.0*dx*dy)/(w*h);
+                // data[(x+y*w)*stride] += (sq((real)(dx*dx+dy*dy)-0.1*(w*h)) < 100000 &&x!=0&&x!=w-1);
+                // data[(x+y*w)*stride] += (x!=0&&x!=w-1)*0.0001*(rand()%1000-500);
+                // data[(x+y*w)*stride] = sin((2*pi*x)/w)*cos((2*pi*y)/h);
 
-                /* data[(w/2+dx)+(w/2+dy)*w] = 10.5*exp(-0.1*(sq(dx)+sq(dy))); */
+                // data[(w/2+dx)+(w/2+dy)*w] = 10.5*exp(-0.1*(sq(dx)+sq(dy)));
 
                 /* data[(x)+(y)*w]       = 0.5*exp(-0.01*(sq(dx)+sq(dy)))*cos(1.0*dy); */
                 /* (data+dim)[(x)+(y)*w] = 0.5*exp(-0.01*(sq(dx)+sq(dy)))*sin(1.0*dy); */
             }
 
-        for(int i = 0; i < 2; i++)
+        for(int i = 0; i < n_textures; i++)
         {
             glGenTextures(1, &data_texture[i]);
             glBindTexture(GL_TEXTURE_2D, data_texture[i]);
@@ -283,17 +298,24 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             //texture parameters
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
             //allocate and upload
             // uint n_layers = 1;
             // glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, width, height, n_layers);
             // glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, w, h, n_layers, GL_RGBA, GL_FLOAT, data);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RG32F, w, h, 0, GL_RG, GL_FLOAT, data+i*(w*h*2));
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RG32F, w, h, 0, GL_RG, GL_FLOAT, data+i*(w*h*stride));
         }
 
-        init_compute(GL_TEXTURE_2D, data_texture, glrc, dc);
+        init_compute(glrc, dc);
+
+        //load kernel source
+        char* code = (char*) free_memory;
+        size_t code_size = load_file("../code/spring_bed_kernel.cl", code);
+
+        kernel = compile_kernel(code, code_size);
+        cl_buffers_from_gl_textures(GL_TEXTURE_2D, data_texture);
     }
 
     vi_buffer * vi_buffers;
@@ -308,19 +330,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     GLuint transform_uniform;
     GLuint data_uniform;
     {
-        char* vertex_shader_source = (char*) free_memory;
-        size_t vertex_shader_source_size = load_file("../code/vertex_shader.glsl", vertex_shader_source);
-        vertex_shader_source[vertex_shader_source_size] = 0;
-        free_memory = (void*)((char*)free_memory+vertex_shader_source_size+1);
+        shader_source sources[] = {
+            load_shader_from_file(GL_VERTEX_SHADER, "../code/vertex_shader.glsl"),
+            load_shader_from_file(GL_TESS_CONTROL_SHADER, "../code/tessellation_control_shader.glsl"),
+            load_shader_from_file(GL_TESS_EVALUATION_SHADER, "../code/tessellation_evaluation_shader.glsl"),
+            load_shader_from_file(GL_FRAGMENT_SHADER, "../code/fragment_shader.glsl"),
+        };
 
-        char* fragment_shader_source = (char*) free_memory;
-        size_t fragment_shader_source_size = load_file("../code/fragment_shader.glsl", fragment_shader_source);
-        fragment_shader_source[fragment_shader_source_size] = 0;
-        free_memory = (void*)((char*)free_memory+fragment_shader_source_size+1);
-
-        // log_output("vertex shader:\n", vertex_shader_source, "\nfragment shader:\n", fragment_shader_source);
-
-        program = init_program(vertex_shader_source, fragment_shader_source);
+        program = init_program(sources, len(sources));
 
         transform_uniform = glGetUniformLocation(program, "t");
         data_uniform = glGetUniformLocation(program, "data");
@@ -355,22 +372,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
 
     {
-        // glEnable(GL_DEPTH_TEST);
-        // glDepthMask(GL_TRUE);
-        // glDepthFunc(GL_LEQUAL);
-        // glDepthRange(0.0f, 1.0f);
-        // glEnable(GL_DEPTH_CLAMP);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glDepthFunc(GL_LEQUAL);
+        glDepthRange(0.0f, 1.0f);
+        glEnable(GL_DEPTH_CLAMP);
 
-        // glFrontFace(GL_CCW);
+        // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        glFrontFace(GL_CCW);
         // glCullFace(GL_BACK);
-        // //glEnable(GL_CULL_FACE);
+        // glEnable(GL_CULL_FACE);
 
         glLineWidth(1.0);
 
-        glClearColor(0.0/255.0, 50.0/255.0, 98.0/255.0, 1.0);
+        glEnable(GL_FRAMEBUFFER_SRGB);
+        #define gamma 2.2
+        glClearColor(pow(0.2, gamma), pow(0.0, gamma), pow(0.3, gamma), 1.0);
         glClearDepth(1.0);
 
-        wglSwapIntervalEXT(0);
+        wglSwapIntervalEXT(1);
     }
 
     LARGE_INTEGER timer_frequency;
@@ -378,6 +398,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     LARGE_INTEGER this_time = {0};
 
     QueryPerformanceFrequency(&timer_frequency);
+
+    // enum button_code
+    // {
+    //     button_lmb,
+    //     button_rmb,
+    //     button_count,
+    // };
+    // byte buttons[(button_count-1)/8+1];
+    // #define set_button_off(code) (buttons[code/8] |= 1<<code%8)
+    // #define set_button_on(code) (buttons[code/8] &= ~(1<<code%8))
+    // #define get_button(code) ((buttons[code/8]>>(code%8))&1)
 
     MSG msg;
     do
@@ -388,6 +419,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
             switch(msg.message)
             {
+                // #define process_mouse_button(case_prefix, code) \
+                //     case case_prefix##DOWN:                     \
+                //     {                                           \
+                //         set_button_on(code);                    \
+                //         break;                                  \
+                //     }                                           \
+                // case case_prefix##UP:                           \
+                // {                                               \
+                //     set_button_off(code);                       \
+                //     break;                                      \
+                // }
+
+                // process_mouse_button(WM_LBUTTON, button_lmb);
+                // process_mouse_button(WM_RBUTTON, button_rmb);
+
+                case WM_KEYDOWN:
+                {
+                    break;
+                }
                 case WM_DESTROY:
                 {
                     PostQuitMessage(0);
@@ -400,35 +450,149 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
             }
         }
 
-        simulate();
+        {//simulate
+            static int i = 0;
+            real dt = 0.001;
+            int error;
 
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            glFinish();
+
+            error = clEnqueueAcquireGLObjects(queue, n_textures,  psi, 0, 0, 0);
+            assert(error==CL_SUCCESS, error, ", Could not aquire gl objects");
+
+            #define clSetKernelArgAndAssert(kernel, arg, size, value)   \
+                error = clSetKernelArg(kernel, arg, size, value);       \
+                assert(error==CL_SUCCESS, error, ", Could not set kernal arg " STR(arg) " to " STR(value));
+
+            for(int j = 0; j < 200; j++)
+            {
+                size_t global_size[] = {w, h};
+                size_t local_size[] = {0, 0};
+
+                clSetKernelArgAndAssert(kernel, 0, sizeof(real), &dt);
+                clSetKernelArgAndAssert(kernel, 1, sizeof(cl_mem), &psi[j%2]);
+                clSetKernelArgAndAssert(kernel, 2, sizeof(cl_mem), &psi[1-j%2]);
+
+                /* clSetKernelArgAndAssert(kernel, 0, sizeof(real), &dt); */
+                /* clSetKernelArgAndAssert(kernel, 1, sizeof(cl_mem), &psi[j%2]); */
+                /* clSetKernelArgAndAssert(kernel, 2, sizeof(cl_mem), &psi[2+j%2]); */
+                /* clSetKernelArgAndAssert(kernel, 3, sizeof(cl_mem), &psi[1-j%2]); */
+                /* clSetKernelArgAndAssert(kernel, 4, sizeof(cl_mem), &psi[2+1-j%2]); */
+
+                error = clEnqueueNDRangeKernel(queue, kernel, 2, 0, global_size, 0, 0, 0, 0);
+                if(error < 0) log_error("Could not enqueue the kernel");
+                i++;
+            }
+
+            clFinish(queue);
+            clEnqueueReleaseGLObjects(queue, n_textures, psi, 0, 0, 0);
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         glViewport(0, 0, window_width, window_height);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(program);
 
-        float camera[16] = {};
-        for(int i = 0; i < 16; i+=5)
+        #define button_rotate VK_LBUTTON
+        #define button_poke VK_RBUTTON
+
+        POINT cursor_point;
+        RECT window_rect;
+        float dx_m;
+        float dy_m;
         {
-            camera[i] = (i!=15)+1.0;
+            static POINT old_cursor_point;
+            old_cursor_point = cursor_point;
+            GetCursorPos(&cursor_point);
+            dx_m = cursor_point.x-old_cursor_point.x;
+            dy_m = cursor_point.y-old_cursor_point.y;
+            GetWindowRect(hwnd, &window_rect);
         }
+
+        static real phi = 0.0;
+        static real theta = 0.0;
+
+        HWND foreground_window = GetForegroundWindow();
+        if(GetAsyncKeyState(button_rotate) && foreground_window == hwnd)
+        {
+            phi += 0.01*dx_m;
+            theta -= 0.01*dy_m;
+        }
+
+        // phi += 0.01;
+        //NOTE: the matrices are stored in column major order
+        real4x4 R_z = {
+            cos(phi),+sin(phi), 0.0, 0.0,
+           -sin(phi), cos(phi), 0.0, 0.0,
+            0.0   ,    0.0, 1.0, 0.0,
+            0.0   ,    0.0, 0.0, 1.0,
+        };
+        real4x4 R_x = {
+            1.0,    0.0,    0.0, 0.0,
+            0.0, cos(theta), sin(theta), 0.0,
+            0.0,-sin(theta), cos(theta), 0.0,
+            0.0,    0.0,    0.0, 1.0,
+        };
+        real4x4 camera = R_x*R_z;
+
+        static bool poking = false;
+        if(GetAsyncKeyState(button_poke) && foreground_window == hwnd)
+        {
+            if(!poking)
+            {
+                real4 r_m = {cursor_point.x-(window_rect.left+window_rect.right)/2,
+                             -cursor_point.y+(window_rect.bottom+window_rect.top)/2,
+                             0.0, 0.0};
+                r_m.z = +r_m.y/cos(theta); //TODO: generalize this, I need to project the mouse position onto a plane
+                // for(int i = 0; i < 4; i++)
+                // {
+                //     for(int j = 0; j < 4; j++)
+                //         log_output((transpose(camera))[i][j], ", ");
+                //     log_output("\n");
+                // }
+                real4 r_t = transpose(camera)*r_m; //assumes camera is a unitary matrix
+                real x = r_t.x+w/2;
+                real y = r_t.y+h/2;
+
+                glGetTextureSubImage(data_texture[0], 0, 0, 0, 0, w, h, 1, GL_RG, GL_FLOAT, w*h*2*sizeof(float), data);
+                for(int tx = 0; tx < w; tx++)
+                    for(int ty = 0; ty < h; ty++)
+                    {
+                        data[(tx+ty*h)*2] -= 1*exp(-(sq(tx-x)+sq(ty-y))/1000.0);
+                        // data[(tx+ty*h)*2] -= 1*exp(-(sq(tx-x)+sq(ty-y))/10000.0)*cos(float(tx-x)*pi/(10.0));
+                        // data[(tx+ty*h)*2+1] -= 1*exp(-(sq(tx-x)+sq(ty-y))/10000.0)*sin(float(tx-x)*pi/(10.0));
+                    }
+                glTextureSubImage2D(data_texture[0], 0, 0, 0, w, h, GL_RG, GL_FLOAT, data);
+            }
+            poking = true;
+        }
+        else poking = false;
 
         glBindTexture(GL_TEXTURE_2D, data_texture[0]);
         glUniform1i(data_uniform, 0);
         glUniformMatrix4fv(transform_uniform, 1, false, (float *) &camera);
-        bind_vertex_and_index_buffers(vi_buffers[vi_id_cube].vb, vi_buffers[vi_id_cube].ib);
-        glDrawElements(GL_TRIANGLES, vi_buffers[vi_id_cube].n, GL_UNSIGNED_SHORT, 0);
+
+        // bind_vertex_and_index_buffers(vi_buffers[vi_id_cube].vb, vi_buffers[vi_id_cube].ib);
+        // glDrawElements(GL_TRIANGLES, vi_buffers[vi_id_cube].n, GL_UNSIGNED_SHORT, 0);
+
+        glPatchParameteri(GL_PATCH_VERTICES, 4);
+        glBegin(GL_PATCHES);
+        glVertexAttrib2f(attrib_tex_coord, 0.0, 0.0); glVertexAttrib3f(attrib_normal, 0.0, 0.0, 1.0); glVertex3f(-1, -1, 0);
+        glVertexAttrib2f(attrib_tex_coord, 1.0, 0.0); glVertexAttrib3f(attrib_normal, 0.0, 0.0, 1.0); glVertex3f( 1, -1, 0);
+        glVertexAttrib2f(attrib_tex_coord, 1.0, 1.0); glVertexAttrib3f(attrib_normal, 0.0, 0.0, 1.0); glVertex3f( 1,  1, 0);
+        glVertexAttrib2f(attrib_tex_coord, 0.0, 1.0); glVertexAttrib3f(attrib_normal, 0.0, 0.0, 1.0); glVertex3f(-1,  1, 0);
+        glEnd();
 
         //render fbo
         #if 1
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
-        glDrawBuffer(GL_BACK);                       // Set the back buffer as the draw buffer
+        // glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        // glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        // glDrawBuffer(GL_BACK);                       // Set the back buffer as the draw buffer
 
-        glBlitFramebuffer(0, 0, window_width, window_height,
-                          0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        // glBlitFramebuffer(0, 0, window_width, window_height,
+        //                   0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         #else
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, window_width, window_height);

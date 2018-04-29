@@ -7,6 +7,8 @@
 enum attrib
 {
     attrib_pos,
+    attrib_normal,
+    attrib_tex_coord,
     attrib_count,
 };
 
@@ -26,7 +28,7 @@ void APIENTRY gl_error_callback(GLenum source, GLenum type, GLuint id, GLenum se
     switch(severity)
     {
         case DEBUG_SEVERITY_HIGH:
-            assert(0, "\nHIGH:", message);
+            assert(0, "\nHIGH: ", message);
             break;
         case DEBUG_SEVERITY_MEDIUM:
             log_warning("\nMEDIUM:");
@@ -118,10 +120,22 @@ inline void bind_vertex_and_index_buffers(uint vb, uint ib)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ib);
 }
 
-GLuint init_shader(char * shader_source, GLenum shader_type)
+struct shader_source
 {
-    GLuint shader = glCreateShader(shader_type);
-    glShaderSource(shader, 1, &shader_source, 0);
+    char* filename;
+    GLenum type;
+    char* source;
+};
+
+shader_source load_shader_from_file(GLenum type, char* filename)
+{
+    return {filename, type, load_file_0_terminated(filename)};
+}
+
+GLuint init_shader(shader_source source)
+{
+    GLuint shader = glCreateShader(source.type);
+    glShaderSource(shader, 1, &source.source, 0);
     glCompileShader(shader);
 
     int error;
@@ -129,23 +143,25 @@ GLuint init_shader(char * shader_source, GLenum shader_type)
     #ifdef DEBUG //TODO?: use logging
     if(error == 0)
     {
-        char info_log[128];
-        glGetShaderInfoLog(shader, sizeof(info_log), 0, info_log);
-        assert(0, info_log);
+        char* info_log = (char*) free_memory;
+        glGetShaderInfoLog(shader, free_memory_size, 0, info_log);
+        assert(0, "\n", source.filename, " ", info_log+1);
     }
     #endif
 
     return shader;
 }
 
-GLuint init_program(char* vertex_shader_source, char* fragment_shader_source)
+GLuint init_program(shader_source* sources, size_t n_shaders)
 {
-    GLuint vertex_shader = init_shader(vertex_shader_source, GL_VERTEX_SHADER);
-    GLuint fragment_shader = init_shader(fragment_shader_source, GL_FRAGMENT_SHADER);
-
     GLuint program = glCreateProgram();
-    glAttachShader(program, vertex_shader);
-    glAttachShader(program, fragment_shader);
+
+    GLuint* shaders = (GLuint*) free_memory;
+    for(int i = 0; i < n_shaders; i++)
+    {
+        shaders[i] = init_shader(sources[i]);
+        glAttachShader(program, shaders[i]);
+    }
 
     glLinkProgram(program);
 
@@ -154,16 +170,17 @@ GLuint init_program(char* vertex_shader_source, char* fragment_shader_source)
     #ifdef DEBUG
     if(error == 0)
     {
-        char info_log[128];
-        glGetProgramInfoLog(program, sizeof(info_log), 0, info_log);
-        assert(0);
+        char* info_log = (char*) free_memory;
+        glGetProgramInfoLog(program, free_memory_size, 0, info_log);
+        assert(0, info_log);
     }
     #endif
 
-    glDetachShader(program, vertex_shader);
-    glDetachShader(program, fragment_shader);
-    glDeleteShader(vertex_shader);
-    glDeleteShader(fragment_shader);
+    for(int i = 0; i < n_shaders; i++)
+    {
+        glDetachShader(program, shaders[i]);
+        glDeleteShader(shaders[i]);
+    }
     return program;
 }
 
