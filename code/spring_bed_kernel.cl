@@ -12,7 +12,7 @@ const sampler_t sampler = CLK_NORMALIZED_COORDS_FALSE|CLK_ADDRESS_CLAMP|CLK_FILT
 #define k_center 0.0
 #define c_c 0.25
 
-float psi_ddot(int x, int y, float dt, __read_write image2d_t psi_data, float psi_ddot)
+float psi_ddot(int x, int y, float dt, __read_only image2d_t psi_data, float psi_ddot)
 {
     psi_ddot += -(k_center)*psi(x, y);
     psi_ddot -= c_c*psi_dot(x, y);
