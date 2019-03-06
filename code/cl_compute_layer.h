@@ -40,7 +40,7 @@ void init_compute(HGLRC glrc, HDC dc)
         log_output("    platform ", i, ": \n        name: ", platform_name, "\n");
     }
 
-    cl_platform_id platform = platforms[0];
+    cl_platform_id platform = platforms[1];
 
     cl_context_properties context_properties[] = {
         CL_CONTEXT_PLATFORM, (cl_context_properties) platform,
@@ -76,17 +76,34 @@ void init_compute(HGLRC glrc, HDC dc)
         size_t extensions_size;
         clGetDeviceInfo(devices[i], CL_DEVICE_EXTENSIONS, 0, 0, &extensions_size);
         char* extensions = (char*) free_memory;
+        free_memory = (void*)((byte*)free_memory+extensions_size);
         clGetDeviceInfo(devices[i], CL_DEVICE_EXTENSIONS, extensions_size, extensions, 0);
-        log_output("    device ", (int)i, ":\n        type: ", (int)device_type, "\n        extensions: ", extensions, "\n");
+
+        size_t cl_driver_version_size;
+        clGetDeviceInfo(devices[i], CL_DRIVER_VERSION, 0, 0, &cl_driver_version_size);
+        char* cl_driver_version = (char*) free_memory;
+        free_memory = (void*)((byte*)free_memory+cl_driver_version_size);
+        clGetDeviceInfo(devices[i], CL_DRIVER_VERSION, cl_driver_version_size, cl_driver_version, 0);
+
+        size_t cl_device_version_size;
+        clGetDeviceInfo(devices[i], CL_DEVICE_VERSION, 0, 0, &cl_device_version_size);
+        char* cl_device_version = (char*) free_memory;
+        clGetDeviceInfo(devices[i], CL_DEVICE_VERSION, cl_device_version_size, cl_device_version, 0);
+
+        log_output("    device ", (int)i,
+                   ":\n        type: ", (int)device_type,
+                   "\n        extensions: ", extensions,
+                   "\n        driver version: ", cl_driver_version,
+                   "\n        device version: ", cl_device_version, "\n");
     }
 
     //create context
     context = clCreateContext(context_properties,
-                                         1, //n_devices,
-                                         &devices[0],
-                                         0, //notify callback
-                                         0, //used data for notify callback
-                                         &error);
+                              1, //n_devices,
+                              &devices[0],
+                              0, //notify callback
+                              0, //used data for notify callback
+                              &error);
     assert(error==0, "Could not create context");
 
     //create device queue
